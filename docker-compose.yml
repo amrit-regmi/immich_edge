@@ -1,27 +1,4 @@
 services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      - EDGE_DOMAIN
-      - SSL_EMAIL
-    depends_on:
-      nginx:
-        condition: service_started
-
   nginx:
     build: ./nginx
     ports:
@@ -97,5 +74,3 @@ services:
 
 volumes:
   cache:
-  caddy_data:
-  caddy_config:
