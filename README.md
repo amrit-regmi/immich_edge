@@ -10,29 +10,31 @@ Your photos stay at home. The VPS only caches frequently-accessed files.
 External user
       ↓
 VPS (immich-edge)
-├── Caddy   — SSL termination (Let's Encrypt), HSTS/CSP headers, reverse proxy to Nginx
-├── Nginx   — authentication gate + cache/static file server (OpenResty)
-├── Auth    — Go service: validates sessions, API keys, and shared links
-└── Sync    — rclone daemon syncing thumbs/videos from home server (static mode only)
+├── Reverse proxy  — SSL termination + security headers (bring your own: Caddy, nginx, etc.)
+├── Nginx          — authentication gate + cache/static file server (OpenResty)
+├── Auth           — Go service: validates sessions, API keys, and shared links
+└── Sync           — rclone daemon syncing thumbs/videos from home server (static mode only)
       ↓  (Tailscale / WireGuard tunnel)
 Home server
 └── Immich  — all your data stays here
 ```
+
+Nginx listens on `127.0.0.1:8081`. Point your reverse proxy of choice at that address.
 
 ### Request flow
 
 Every asset request (thumbnail or video) goes through the same auth gate regardless of how the user is authenticated:
 
 ```
-Request → Caddy → Nginx
-                    ├── /_validate (internal auth_request to Auth service)
-                    │     ├── Session cookie / API key   → GET /api/users/me
-                    │     └── Shared link ?key=          → GET /api/shared-links/me
-                    │           (cookies forwarded — covers password-protected links)
-                    │           then: verify UUID is in the shared album
-                    │
-                    ├── Auth OK → serve from cache/static files
-                    └── Auth fail → 401 (no asset served)
+Request → Reverse proxy → Nginx
+                            ├── /_validate (internal auth_request to Auth service)
+                            │     ├── Session cookie / API key   → GET /api/users/me
+                            │     └── Shared link ?key=          → GET /api/shared-links/me
+                            │           (cookies forwarded — covers password-protected links)
+                            │           then: verify UUID is in the shared album
+                            │
+                            ├── Auth OK → serve from cache/static files
+                            └── Auth fail → 401 (no asset served)
 ```
 
 ### Cache modes
@@ -112,10 +114,11 @@ When the Immich server version changes, the meta cache (`nginx_meta`) is automat
 ## Prerequisites
 
 1. A VPS with ports 80 and 443 open
-2. DNS: your `EDGE_DOMAIN` A record pointing to the VPS IP
+2. DNS: your domain's A record pointing to the VPS IP
 3. A VPN tunnel (Tailscale or WireGuard) between VPS and home server
 4. Docker and Docker Compose installed on the VPS
-5. `IMMICH_INTERNAL_URL` reachable from the VPS:
+5. A reverse proxy on the VPS for TLS termination (Caddy, nginx, Traefik, etc.)
+6. `IMMICH_INTERNAL_URL` reachable from the VPS:
    ```sh
    curl http://<tailscale-ip>:2283/api/server/ping
    ```
@@ -130,6 +133,8 @@ nano .env   # fill in required values
 docker compose up -d
 ```
 
+Then configure your reverse proxy to forward traffic to `127.0.0.1:8081`.
+
 Check logs:
 
 ```sh
@@ -141,8 +146,6 @@ docker compose logs -f
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `IMMICH_INTERNAL_URL` | Yes | — | Immich URL reachable from VPS (e.g. `http://100.x.x.x:2283`) |
-| `EDGE_DOMAIN` | Yes | — | Public domain for this cache (e.g. `photos.example.com`) |
-| `SSL_EMAIL` | Yes | — | Let's Encrypt notification email |
 | `CACHE_MODE` | No | `proxy` | `proxy` or `static` |
 | `CACHE_MAX_SIZE` | No | `50g` | Max disk for nginx proxy cache |
 | `CACHE_TTL` | No | `365d` | TTL for cached thumbnails/videos |
@@ -162,6 +165,19 @@ docker compose logs -f
 | `RCLONE_SYNC_INTERVAL` | static only | `60` | Sync interval in seconds (`0` = one-time seed) |
 | `RCLONE_TRANSFERS` | static only | `8` | Parallel rclone transfers |
 | `FULL_SYNC_INTERVAL` | static only | `86400` | How often (seconds) to run a full sync; catches deletions of old files that the incremental window misses |
+
+## Reverse proxy
+
+immich-edge does not manage TLS — Nginx binds only on `127.0.0.1:8081`. Any reverse proxy that can terminate TLS and forward HTTP/1.1 to `localhost:8081` will work (Caddy, nginx, Traefik, HAProxy, etc.).
+
+Recommended headers to set in your reverse proxy:
+
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Frame-Options: SAMEORIGIN
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' wss:; worker-src 'self' blob:
+```
 
 ## Static mode setup
 
@@ -212,7 +228,7 @@ Query strings (including shared link `?key=` params) are not logged.
 
 **Brute-force protection on login** — `POST /api/auth/login` and `POST /api/shared-links/login` share a dedicated rate-limit zone: 10 requests/minute per IP, burst 5. Thumbnail and video requests are not subject to this limit.
 
-**HSTS + CSP** — Caddy applies `Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options`, and a `Content-Security-Policy` header to all responses.
+**HSTS + CSP** — apply security headers (`Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options`, `Content-Security-Policy`) in your reverse proxy. See the [Reverse proxy](#reverse-proxy) section for the recommended values.
 
 **Minimal privilege** — Nginx runs as `nobody`; auth service runs as `appuser` (uid 1001); all containers have `no-new-privileges: true`.
 

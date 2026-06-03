@@ -25,6 +25,10 @@ export IMMICH_BACKEND
 envsubst '${IMMICH_INTERNAL_URL} ${IMMICH_BACKEND} ${CACHE_MODE} ${CACHE_MAX_SIZE} ${CACHE_TTL} ${CACHE_TTL_404} ${CACHE_DIR} ${CACHE_PATTERN_THUMBS} ${CACHE_PATTERN_VIDEOS} ${AUTH_PORT} ${NGINX_WORKERS} ${IMMICH_THUMBS_PATH} ${IMMICH_ENCODED_PATH} ${IMMICH_PROFILE_PATH} ${RATE_LIMIT}' \
   < "$TMPL" > "$CONF_OUT"
 
+# Ensure cache directories exist and are writable by nginx worker (nobody)
+mkdir -p "${CACHE_DIR}/nginx" "${CACHE_DIR}/nginx_meta"
+chown -R nobody:nobody "${CACHE_DIR}/nginx" "${CACHE_DIR}/nginx_meta"
+
 # Allow nobody (worker processes) to write logs
 touch /var/log/nginx/access.log /var/log/nginx/error.log
 chmod 666 /var/log/nginx/access.log /var/log/nginx/error.log

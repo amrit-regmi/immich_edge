@@ -11,3 +11,16 @@
 
     reverse_proxy nginx:80
 }
+watchly.pradayak.regmig.com {
+      tls {$SSL_EMAIL}
+
+      @local {
+          remote_ip 192.168.10.0/24 192.168.20.0/24 127.0.0.1/32 100.64.0.0/10
+      }
+      handle @local {
+          reverse_proxy 172.18.0.1:8000
+      }
+      handle {
+          respond "Access restricted to local network." 403
+      }
+  }
