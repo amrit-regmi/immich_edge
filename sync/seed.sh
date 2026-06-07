@@ -42,6 +42,7 @@ evict_to_limit() {
 
   tmpfile=$(mktemp)
   find "$dir" -type f ! -name '.last_sync' ! -name '.last_full_sync' \
+    ! -path "*/nginx/*" ! -path "*/nginx_meta/*" \
     | while IFS= read -r f; do stat -c "%Y %s %n" "$f" 2>/dev/null || true; done \
     | sort -n > "$tmpfile"
 
@@ -55,7 +56,7 @@ evict_to_limit() {
   done < "$tmpfile"
   rm -f "$tmpfile"
 
-  find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+  find "$dir" -mindepth 1 -type d -empty ! -name 'nginx' ! -name 'nginx_meta' -delete 2>/dev/null || true
   echo "immich-edge sync: cache after eviction: $(( $(dir_bytes "$dir") / 1048576 ))MB / $(( limit_bytes / 1048576 ))MB"
 }
 
